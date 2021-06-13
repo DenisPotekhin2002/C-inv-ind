@@ -38,6 +38,10 @@ public:
             : vect(std::move(v))
             , i(ind){};
 
+        DocIterator(const std::vector<Filename> & v, size_t ind)
+            : vect(v)
+            , i(ind){};
+
         DocIterator()
             : i(0){};
 
@@ -90,7 +94,6 @@ public:
 
     void ins(std::string && query, std::vector<Filename> & vect)
     {
-        //std::cout << "ins " << query << std::endl;
         requests.emplace(std::move(query), vect);
     }
 
@@ -104,5 +107,5 @@ private:
 
     void precount_o(std::vector<Filename> & temp_vect, const std::string & a, std::unordered_map<Filename, std::unordered_set<int>> & indexes) const;
 
-    void compare(std::vector<Filename> & vect, std::vector<Filename> & temp_vect);
+    void compare(std::vector<Filename> & vect, std::vector<Filename> && temp_vect);
 };

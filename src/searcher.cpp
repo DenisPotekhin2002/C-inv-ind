@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <iostream>
 #include <sstream>
 
 void Searcher::add_document(const Searcher::Filename & filename, std::istream & strm)
@@ -10,24 +9,24 @@ void Searcher::add_document(const Searcher::Filename & filename, std::istream & 
     int pos = 0;
     std::string str;
     std::unordered_map<std::string, std::unordered_set<int>> positions;
+    std::unordered_set<int> ps;
     while (strm >> str) {
         trim(str);
         if (!str.empty()) {
-            std::unordered_set<int> ps;
-            ps.emplace(pos);
-            auto [iter, flag] = positions.emplace(str, ps);
+            ps = {pos};
+            const auto [iter, flag] = positions.emplace(str, std::move(ps));
             if (!flag) {
-                iter->second.insert(pos);
+                (*iter).second.emplace(pos);
             }
             pos++;
         }
     }
     std::map<Filename, std::unordered_set<int>> map_t;
-    for (auto s : positions) {
+    for (const auto & s : positions) {
         map_t = {{filename, s.second}};
-        auto [iter, flag] = map.emplace(s.first, map_t);
+        const auto [iter, flag] = map.emplace(s.first, std::move(map_t));
         if (!flag) {
-            iter->second.emplace(filename, s.second);
+            (*iter).second.emplace(filename, s.second);
         }
     }
     requests.clear();
@@ -53,10 +52,10 @@ void Searcher::remove_document(const Searcher::Filename & filename)
 
 std::pair<Searcher::DocIterator, Searcher::DocIterator> Searcher::search(const std::string & query)
 {
-    auto iterator = requests.find(query);
+    const auto & iterator = requests.find(query);
     if (iterator != requests.end()) {
-        auto vect = iterator->second;
-        return (std::make_pair(DocIterator(std::move(vect), 0), DocIterator()));
+        //auto vect = iterator->second;
+        return (std::make_pair(DocIterator((*iterator).second, 0), DocIterator()));
     }
     std::vector<Filename> vect;
     size_t spos = 0;
@@ -64,10 +63,11 @@ std::pair<Searcher::DocIterator, Searcher::DocIterator> Searcher::search(const s
         throw bqex;
     }
     bool isempty = true;
-    while (spos < query.size()) {
+    size_t q_size = query.size();
+    while (spos < q_size) {
         while (!isalpha(query[spos]) && !isdigit(query[spos]) && query[spos] != '\"') {
             spos++;
-            if (spos >= query.size()) {
+            if (spos >= q_size) {
                 if (!isempty) {
                     return std::make_pair(DocIterator(std::move(vect), 0), DocIterator());
                 }
@@ -106,42 +106,41 @@ std::vector<Searcher::Filename> Searcher::search_ordered(std::string && query)
         throw bqex;
     }
     while (ss >> a) {
-        size_t iter = 0;
+        auto iter = vect.begin();
         trim(a);
         if (!a.empty()) {
-            auto map_it = map.find(a);
+            const auto & map_it = map.find(a);
             if (map_it == map.end()) {
                 vect.clear();
                 ins(std::move(query), vect);
                 return vect;
             }
-            const auto & map_doc = map_it->second;
+            const auto & map_doc = (*map_it).second;
             for (const auto & i : map_doc) {
                 const std::string & i_f = i.first;
                 const auto & set = i.second;
-                while (iter != vect.size() && vect[iter] < i_f) {
-                    vect.erase(vect.begin() + iter);
+                while (iter != vect.end() && *iter < i_f) {
+                    vect.erase(iter);
                     if (vect.empty()) {
                         vect.clear();
                         ins(std::move(query), vect);
                         return vect;
                     }
-                    if (iter == vect.size()) {
+                    if (iter == vect.end()) {
                         break;
                     }
                 }
-                if (iter != vect.size() && vect[iter] == i_f) {
-                    auto it_ind = indexes.find(vect[iter]);
-                    auto & set_ind = it_ind->second;
+                if (iter != vect.end() && *iter == i_f) {
+                    auto & set_ind = (*indexes.find(*iter)).second;
                     std::unordered_set<int> temp_inds;
                     for (const auto & ind : set_ind) {
                         if (set.find(ind + 1) != set.end()) {
-                            temp_inds.insert(ind + 1);
+                            temp_inds.emplace(ind + 1);
                         }
                     }
-                    set_ind = std::move(temp_inds);
+                    set_ind = temp_inds;
                     if (set_ind.empty()) {
-                        vect.erase(vect.begin() + iter);
+                        vect.erase(iter);
                         if (vect.empty()) {
                             vect.clear();
                             ins(std::move(query), vect);
@@ -152,12 +151,12 @@ std::vector<Searcher::Filename> Searcher::search_ordered(std::string && query)
                         iter++;
                     }
                 }
-                if (iter == vect.size()) {
+                if (iter == vect.end()) {
                     break;
                 }
             }
-            if (iter != vect.size()) {
-                vect.erase(vect.begin() + iter, vect.end());
+            if (iter != vect.end()) {
+                vect.erase(iter, vect.end());
                 if (vect.empty()) {
                     vect.clear();
                     ins(std::move(query), vect);
@@ -183,24 +182,24 @@ std::vector<Searcher::Filename> Searcher::search_unordered(std::string && query)
     ss >> a;
     trim(a);
     if (!a.empty()) {
-        auto map_it = map.find(a);
+        const auto & map_it = map.find(a);
         if (map_it == map.end()) {
             vect.clear();
             ins(std::move(query), vect);
             return vect;
         }
-        const std::map<Filename, std::unordered_set<int>> & map_doc = map_it->second;
+        const std::map<Filename, std::unordered_set<int>> & map_doc = (*map_it).second;
         vect.reserve(map_doc.size());
         for (const auto & i : map_doc) {
             vect.push_back(i.first);
         }
-        used.insert(a);
+        used.emplace(a);
     }
     else {
         throw bqex;
     }
     while (ss >> a_temp) {
-        size_t iter = 0;
+        auto iter = vect.begin();
         trim(a_temp);
         if (used.find(a_temp) != used.end()) {
             continue;
@@ -209,36 +208,36 @@ std::vector<Searcher::Filename> Searcher::search_unordered(std::string && query)
             a = a_temp;
         }
         if (!a.empty()) {
-            auto map_it = map.find(a);
+            const auto & map_it = map.find(a);
             if (map_it == map.end()) {
                 vect.clear();
                 ins(std::move(query), vect);
                 return vect;
             }
-            const auto & map_doc = map_it->second;
+            const auto & map_doc = (*map_it).second;
             for (const auto & i : map_doc) {
                 const std::string & i_f = i.first;
-                while (iter != vect.size() && vect[iter] < i_f) {
-                    vect.erase(vect.begin() + iter);
+                while (iter != vect.end() && *iter < i_f) {
+                    vect.erase(iter);
                     if (vect.empty()) {
                         ins(std::move(query), vect);
                         return vect;
                     }
-                    if (iter == vect.size()) {
+                    if (iter == vect.end()) {
                         break;
                     }
                 }
-                if (iter != vect.size() && vect[iter] == i_f) {
+                if (iter != vect.end() && *iter == i_f) {
                     iter++;
-                    if (iter == vect.size()) {
+                    if (iter == vect.end()) {
                         break;
                     }
                 }
-                if (iter == vect.size()) {
+                if (iter == vect.end()) {
                     break;
                 }
             }
-            vect.erase(vect.begin() + iter, vect.end());
+            vect.erase(iter, vect.end());
             if (vect.empty()) {
                 ins(std::move(query), vect);
                 return vect;
@@ -291,10 +290,10 @@ bool Searcher::no_more(const std::string & m_query, size_t & spos, std::vector<F
             }
         }
         std::string sub = m_query.substr(spos, fpos - spos + 1);
-        auto iterator = requests.find(sub);
+        const auto & iterator = requests.find(sub);
         std::vector<Filename> temp_vect;
         if (iterator != requests.end()) {
-            temp_vect = iterator->second;
+            temp_vect = (*iterator).second;
         }
         else {
             temp_vect = search_ordered(std::move(sub));
@@ -303,7 +302,7 @@ bool Searcher::no_more(const std::string & m_query, size_t & spos, std::vector<F
             return true;
         }
         else {
-            compare(vect, temp_vect);
+            compare(vect, std::move(temp_vect));
         }
         spos = fpos + 1;
     }
@@ -312,10 +311,10 @@ bool Searcher::no_more(const std::string & m_query, size_t & spos, std::vector<F
             fpos++;
         }
         std::string sub = m_query.substr(spos, fpos - spos);
-        auto iterator = requests.find(sub);
+        const auto & iterator = requests.find(sub);
         std::vector<Filename> temp_vect;
         if (iterator != requests.end()) {
-            temp_vect = iterator->second;
+            temp_vect = (*iterator).second;
         }
         else {
             temp_vect = search_unordered(std::move(sub));
@@ -324,7 +323,7 @@ bool Searcher::no_more(const std::string & m_query, size_t & spos, std::vector<F
             return true;
         }
         else {
-            compare(vect, temp_vect);
+            compare(vect, std::move(temp_vect));
         }
         spos = fpos;
     }
@@ -333,47 +332,49 @@ bool Searcher::no_more(const std::string & m_query, size_t & spos, std::vector<F
 
 void Searcher::precount_o(std::vector<Filename> & temp_vect, const std::string & a, std::unordered_map<Filename, std::unordered_set<int>> & indexes) const
 {
-    auto map_it = map.find(a);
+    const auto & map_it = map.find(a);
     if (map_it == map.end()) {
         return;
     }
-    const std::map<Filename, std::unordered_set<int>> & map_doc = map_it->second;
+    const std::map<Filename, std::unordered_set<int>> & map_doc = (*map_it).second;
     temp_vect.reserve(map_doc.size());
     for (const auto & i : map_doc) {
         std::unordered_set<int> temp_set;
         const auto & inds = i.second;
         for (const auto & ii : inds) {
-            temp_set.insert(ii);
+            temp_set.emplace(ii);
         }
-        indexes.insert(make_pair(i.first, std::move(temp_set)));
+        indexes.emplace(i.first, std::move(temp_set));
         temp_vect.push_back(i.first);
     }
 }
 
-void Searcher::compare(std::vector<Filename> & vect, std::vector<Filename> & temp_vect)
+void Searcher::compare(std::vector<Filename> & vect, std::vector<Filename> && temp_vect)
 {
     if (vect.empty()) {
         vect = std::move(temp_vect);
     }
     else {
-        size_t iter = 0;
+        auto iter = vect.begin();
         for (const auto & i : temp_vect) {
-            while (vect[iter] < i) {
-                vect.erase(vect.begin() + iter);
-                if (iter == vect.size()) {
-                    return;
+            auto iter2 = iter;
+            while (*iter2 < i) {
+                iter2++;
+                if (iter2 == vect.end()) {
+                    break;
                 }
             }
-            if (iter == vect.size()) {
+            vect.erase(iter, iter2);
+            if (iter == vect.end()) {
                 return;
             }
-            if (vect[iter] == i) {
+            if (*iter == i) {
                 iter++;
-                if (iter == vect.size()) {
+                if (iter == vect.end()) {
                     return;
                 }
             }
         }
-        vect.erase(vect.begin() + iter, vect.end());
+        vect.erase(iter, vect.end());
     }
 }
