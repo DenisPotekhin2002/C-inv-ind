@@ -53,7 +53,7 @@ jobs:
       run: make
       working-directory: ./build_asan
     - name: Run ASAN tests
-      timeout-minutes: 6
+      timeout-minutes: 8
       run: ./test/runUnitTests
       working-directory: ./build_asan
     - name: Prepare USAN build dir
